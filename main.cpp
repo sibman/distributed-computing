@@ -348,16 +348,19 @@ namespace akuna::matching_engine {
 
         void makeTrade(OrderEventPriorityQueue &queue, const shared_ptr<OrderEvent> &iocOrder) {
             do {
-                auto order = queue.top();
+                shared_ptr<OrderEvent> order;
+                if (!queue.empty()) {
+                    order = queue.top();
+                }
 
-                if (order->getQuantity() <= iocOrder->getQuantity()) {
+                if (order != nullptr && iocOrder != nullptr && order->getQuantity() <= iocOrder->getQuantity()) {
                     cout << "TRADE " << order->getOrderId() << " " << order->getPrice() << " " << order->getQuantity()
                          << " "
                          << iocOrder->getOrderId() << " " << iocOrder->getPrice() << " " << order->getQuantity()
                          << endl;
                     iocOrder->setQuantity(iocOrder->getQuantity() - order->getQuantity());
                     order->setQuantity(0);
-                } else {
+                } else if (order != nullptr && iocOrder != nullptr) {
                     cout << "TRADE " << order->getOrderId() << " " << order->getPrice() << " "
                          << iocOrder->getQuantity() << " "
                          << iocOrder->getOrderId() << " " << iocOrder->getPrice() << " " << iocOrder->getQuantity()
@@ -366,7 +369,7 @@ namespace akuna::matching_engine {
                     iocOrder->setQuantity(0);
                 }
 
-                if (order->getQuantity() == 0) {
+                if (order != nullptr && order->getQuantity() == 0) {
                     const Side side = order->getOperationType() == OperationType::BUY ? Side::BUY : Side::SELL;
                     cleanupOrder(order, side);
                     queue.pop();
@@ -400,7 +403,6 @@ namespace akuna::matching_engine {
                     continue;
                 }
 
-                shared_ptr<OrderEvent> testOrder = replacedOrderEventOrderMap[rightOrder->getOrderId()];
                 if (orderEventOrderMap[rightOrder->getOrderId()] == nullptr ||
                     isReplacedOrder(replacedOrderEventOrderMap[rightOrder->getOrderId()], rightOrder)) {
                     rightQueue.pop();
@@ -478,17 +480,35 @@ namespace akuna::matching_engine {
             }
 
             if (sellOrder != nullptr && buyOrder != nullptr && iocOrder != nullptr &&
+                iocOrder->getOperationType() == OperationType::BUY &&
                 (sellOrder->getPrice() <= iocOrder->getPrice() ||
                  sellOrder->getPrice() <= buyOrder->getPrice())) {
-                if (buyOrder->getPrice() >= iocOrder->getPrice()) {
+                if (iocOrder->getOperationType() == OperationType::BUY &&
+                    buyOrder->getPrice() >= iocOrder->getPrice()) {
                     processGfdEvent(sellQueue, buyQueue);
                     makeTrade(sellQueue, iocOrder);
-                } else {
+                } else if (iocOrder->getOperationType() == OperationType::BUY) {
                     makeTrade(sellQueue, iocOrder);
                     processGfdEvent(sellQueue, buyQueue);
                 }
-            } else if (sellOrder != nullptr && iocOrder != nullptr && sellOrder->getPrice() <= iocOrder->getPrice()) {
+            } else if (sellOrder != nullptr && buyOrder != nullptr && iocOrder != nullptr &&
+                       iocOrder->getOperationType() == OperationType::SELL &&
+                       (buyOrder->getPrice() >= iocOrder->getPrice() ||
+                        buyOrder->getPrice() >= sellOrder->getPrice())) {
+                if (iocOrder->getOperationType() == OperationType::SELL &&
+                    sellOrder->getPrice() >= iocOrder->getPrice()) {
+                    processGfdEvent(sellQueue, buyQueue);
+                    makeTrade(buyQueue, iocOrder);
+                } else if (iocOrder->getOperationType() == OperationType::SELL) {
+                    makeTrade(buyQueue, iocOrder);
+                    processGfdEvent(sellQueue, buyQueue);
+                }
+            } else if (sellOrder != nullptr && iocOrder != nullptr && sellOrder->getPrice() <= iocOrder->getPrice() &&
+                       iocOrder->getOperationType() == OperationType::BUY) {
                 makeTrade(sellQueue, iocOrder);
+            } else if (buyOrder != nullptr && iocOrder != nullptr && buyOrder->getPrice() >= iocOrder->getPrice() &&
+                       iocOrder->getOperationType() == OperationType::SELL) {
+                makeTrade(buyQueue, iocOrder);
             }
         }
 
